@@ -89,7 +89,7 @@ void RevealPoint(POINT point, LPARAM lParam, WPARAM wParam, int x, int y)
 
                 revealed.push_front(ppoint);
 
-                RevealPoint(ppoint, lParam, wParam);
+                RevealPoint(ppoint, lParam, wParam, ppoint.x, ppoint.y);
             }
         }
     }
@@ -292,7 +292,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                             {
                                 revealed.push_front(point);
 
-                                RevealPoint(point, lParam, wParam);
+                                RevealPoint(point, lParam, wParam, point.x, point.y);
                                 break;
                             }
                         }
