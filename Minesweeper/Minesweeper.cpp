@@ -20,15 +20,15 @@ WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 
 // Minesweeper variables:
-int buttonSize = 32;
-constexpr int gameAreaSize = 16;
-int gamePadding = 16;
+int buttonSize = 24;
+constexpr int gameAreaSize = 10;
+int gamePadding = 10;
 int toolbarHeight = 20;
 
 int gameArea[gameAreaSize][gameAreaSize];
 string gameAreaText[gameAreaSize][gameAreaSize];
-map<POINT, HWND> buttons = { };
-list<POINT> revealed = { };
+HWND buttons[gameAreaSize][gameAreaSize] = { };
+int revealed[gameAreaSize][gameAreaSize] = { };
 
 // Generate the mine field
 bool GenerateField()
@@ -40,7 +40,7 @@ bool GenerateField()
         {
             // -1 = mine
             // 0 = nothing
-            int gtype = rand() % 20;
+            int gtype = rand() % 5;
             gameArea[gx][gy] = gtype == 0 ? -1 : 0;
             gameAreaText[gx][gy] = gtype == 0 ? "M" : "0";
         }
@@ -74,26 +74,25 @@ bool GenerateField()
 
     return true;
 }
-void RevealPoint(POINT point, LPARAM lParam, WPARAM wParam, int x, int y)
+void RevealPoint(int x, int y, LPARAM lParam, WPARAM wParam)
 {
-    for (int px = -1; px < 2; px++)
+    for (int px = x - 1; px < x + 2; px++)
     {
-        for (int py = -1; py < 2; py++)
+        for (int py = y - 1; py < y + 2; py++)
         {
-            bool found = (std::find(revealed.begin(), revealed.end(), gameArea[px][py]) != revealed.end());
-            if (gameArea[x][y] == 0 && !found)
+            if (px >= 0 && px < gameAreaSize && py >= 0 && py < gameAreaSize
+                && ((px == x - 1 && py == y) || (px == x + 1 && py == y) || (px == x && py == y - 1) || (px == x && py == y + 1)))
             {
-                POINT ppoint;
-                ppoint.x = point.x;
-                ppoint.y = point.y;
-
-                revealed.push_front(ppoint);
-
-                RevealPoint(ppoint, lParam, wParam, ppoint.x, ppoint.y);
+                if (gameArea[x][y] == 0 && gameArea[px][py] != -1 && revealed[px][py] != 1)
+                {
+                    revealed[px][py] = 1;
+                    RevealPoint(px, py, (LPARAM)buttons[px][py], wParam);
+                }
             }
         }
     }
-    SendMessage((HWND)lParam, WM_SETTEXT, wParam, (LPARAM)(gameArea[point.x][point.y] == 0 ? L"" : (const wchar_t*)((gameAreaText[point.x][point.y]).c_str())));
+
+    SendMessage((HWND)lParam, WM_SETTEXT, wParam, (LPARAM)(gameArea[x][y] == 0 ? L"" : (const wchar_t*)((gameAreaText[x][y]).c_str())));
 }
 
 // Forward declarations of functions included in this code module:
@@ -217,10 +216,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         case WM_CREATE:
         {
-            //MessageBox(hWnd, L"Failed to generate the mine field", szTitle, MB_OK);
-            //PostQuitMessage(0);
-            //break;
-
             if (GenerateField())
             {
                 for (int x = 0; x < gameAreaSize; x++)
@@ -241,7 +236,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                             NULL);
 
                         const TCHAR* fontName = _T("Arial");
-                        const long nFontSize = 22;
+                        const long nFontSize = (int)(buttonSize * 0.7);
 
                         HDC hdc = GetDC(hwndButton);
 
@@ -254,10 +249,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
                         SendMessage(hwndButton, WM_SETFONT, (WPARAM)font, (LPARAM)MAKELONG(TRUE, 0));
                     
-                        POINT point;
-                        point.x = x;
-                        point.y = y;
-                        buttons[point] = hwndButton;
+                        buttons[x][y] = hwndButton;
                     }
                 }
             }
@@ -284,15 +276,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     {
                         for (int y = 0; y < gameAreaSize; y++)
                         {
-                            POINT point;
-                            point.x = x;
-                            point.y = y;
-
-                            if ((HWND)lParam == buttons[point])
+                            if ((HWND)lParam == buttons[x][y])
                             {
-                                revealed.push_front(point);
-
-                                RevealPoint(point, lParam, wParam, point.x, point.y);
+                                revealed[x][y] = 1;
+                            
+                                RevealPoint(x, y, lParam, wParam);
                                 break;
                             }
                         }
