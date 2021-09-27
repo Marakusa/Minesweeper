@@ -7,6 +7,8 @@
 #include <Windowsx.h>
 #include <map>
 #include <list>
+#include <sstream>
+#include <iostream>
 
 using std::string;
 using std::map;
@@ -24,75 +26,157 @@ int buttonSize = 24;
 constexpr int gameAreaSize = 10;
 int gamePadding = 10;
 int toolbarHeight = 20;
+int maxDensity = 10;
+int generatorSeedOffset = 0;
 
-int gameArea[gameAreaSize][gameAreaSize];
-string gameAreaText[gameAreaSize][gameAreaSize];
-HWND buttons[gameAreaSize][gameAreaSize] = { };
-int revealed[gameAreaSize][gameAreaSize] = { };
+int gameArea[gameAreaSize * gameAreaSize];
+string gameAreaText[gameAreaSize * gameAreaSize];
+HWND buttons[gameAreaSize * gameAreaSize] = { };
+int revealed[gameAreaSize * gameAreaSize] = { };
+bool started = false;
 
+HWND window = NULL;
+
+int GetDensity(int areaSize)
+{
+    int density = (int)ceil(pow((float)(maxDensity) / ((float)areaSize / 10.0), 1.3));
+
+    if (density > maxDensity) density = maxDensity;
+    else if (density < 5) density = 5;
+
+    return density;
+}
 // Generate the mine field
 bool GenerateField()
 {
+    srand(time(0) + generatorSeedOffset);
+
+    int randomDensity = GetDensity(gameAreaSize);
+
     // Generate mines
-    for (int gx = 0; gx < gameAreaSize; gx++)
+    for (int index = 0; index < gameAreaSize * gameAreaSize; index++)
     {
-        for (int gy = 0; gy < gameAreaSize; gy++)
-        {
-            // -1 = mine
-            // 0 = nothing
-            int gtype = rand() % 5;
-            gameArea[gx][gy] = gtype == 0 ? -1 : 0;
-            gameAreaText[gx][gy] = gtype == 0 ? "M" : "0";
-        }
+        // -1 = mine
+        // 0 = nothing
+        int gtype = rand() % randomDensity;
+        gameArea[index] = gtype == 0 ? -1 : 0;
+        gameAreaText[index] = gtype == 0 ? "M" : "0";
     }
 
     // Generate numbers
-    for (int gx = 0; gx < gameAreaSize; gx++)
+    for (int index = 0; index < gameAreaSize * gameAreaSize; index++)
     {
-        for (int gy = 0; gy < gameAreaSize; gy++)
+        if (gameArea[index] != -1)
         {
-            if (gameArea[gx][gy] != -1)
+            // Get x and y coordinates by index
+            float pos = (float)index / (float)gameAreaSize;
+            int x = round((float)(pos - floor(pos)) * (float)gameAreaSize);
+            int y = floor(pos);
+            for (int rx = -1; rx < 2; rx++)
             {
-                for (int rx = -1; rx < 2; rx++)
+                for (int ry = -1; ry < 2; ry++)
                 {
-                    for (int ry = -1; ry < 2; ry++)
+                    if (x + rx >= 0 && x + rx < gameAreaSize &&
+                        y + ry >= 0 && y + ry < gameAreaSize
+                        && gameArea[index + rx + ry * gameAreaSize] == -1)
                     {
-                        if (gx + rx >= 0 && gx + rx < gameAreaSize &&
-                            gy + ry >= 0 && gy + ry < gameAreaSize
-                            && gameArea[gx + rx][gy + ry] == -1)
-                        {
-                            gameArea[gx][gy] += 1;
-                        }
+                        gameArea[index] += 1;
                     }
                 }
-
-                string convertedString = std::to_string(gameArea[gx][gy]);
-                gameAreaText[gx][gy] = convertedString;
             }
+
+            string convertedString = std::to_string(gameArea[index]);
+            gameAreaText[index] = convertedString;
         }
     }
 
     return true;
 }
-void RevealPoint(int x, int y, LPARAM lParam, WPARAM wParam)
+void RevealPoint(int index, LPARAM lParam, WPARAM wParam);
+void CheckSlot(int index, int px, int py, WPARAM wParam)
 {
-    for (int px = x - 1; px < x + 2; px++)
+    int checkIndex = px + py * gameAreaSize;
+    if (gameArea[index] == 0 && gameArea[checkIndex] != -1 && revealed[checkIndex] != 1)
     {
-        for (int py = y - 1; py < y + 2; py++)
-        {
-            if (px >= 0 && px < gameAreaSize && py >= 0 && py < gameAreaSize
-                && ((px == x - 1 && py == y) || (px == x + 1 && py == y) || (px == x && py == y - 1) || (px == x && py == y + 1)))
-            {
-                if (gameArea[x][y] == 0 && gameArea[px][py] != -1 && revealed[px][py] != 1)
-                {
-                    revealed[px][py] = 1;
-                    RevealPoint(px, py, (LPARAM)buttons[px][py], wParam);
-                }
-            }
-        }
+        revealed[checkIndex] = 1;
+        RevealPoint(checkIndex, (LPARAM)buttons[checkIndex], wParam);
+    }
+}
+void RevealPoint(int index, LPARAM lParam, WPARAM wParam)
+{
+    // Get x and y coordinates by index
+    float pos = (float)index / (float)gameAreaSize;
+    int x = round((float)(pos - floor(pos)) * (float)gameAreaSize);
+    int y = floor(pos);
+
+    DestroyWindow(buttons[index]);
+
+    if (gameArea[index] != 0)
+    {
+        HWND hwndLabel = CreateWindow(
+            L"static",  // Predefined class; Unicode assumed 
+            (const wchar_t*)((gameAreaText[index]).c_str()),      // Button text 
+            WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,  // Styles 
+            buttonSize * x + gamePadding,         // x position 
+            buttonSize * y + gamePadding,         // y position 
+            buttonSize,        // Button width
+            buttonSize,        // Button height
+            window,       // Parent window
+            NULL,       // No menu.
+            (HINSTANCE)GetWindowLongPtr(window, GWLP_HINSTANCE),
+            NULL);
+        
+        const TCHAR* fontName = _T("Arial");
+        const long nFontSize = (int)(buttonSize * 0.7);
+
+        HDC hdc = GetDC(hwndLabel);
+
+        LOGFONT logFont = { 0 };
+        logFont.lfHeight = -MulDiv(nFontSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+        logFont.lfWeight = FW_BLACK;
+        _tcscpy_s(logFont.lfFaceName, fontName);
+
+        HFONT font = CreateFontIndirect(&logFont);
+
+        SendMessage(hwndLabel, WM_SETFONT, (WPARAM)font, (LPARAM)MAKELONG(TRUE, 0));
+        
+        buttons[index] = hwndLabel;
     }
 
-    SendMessage((HWND)lParam, WM_SETTEXT, wParam, (LPARAM)(gameArea[x][y] == 0 ? L"" : (const wchar_t*)((gameAreaText[x][y]).c_str())));
+    int px = x;
+    int py = y;
+
+    // Right
+    px = x + 1;
+    py = y;
+    if (px >= 0 && px < gameAreaSize && py >= 0 && py < gameAreaSize)
+    {
+        CheckSlot(index, px, py, wParam);
+    }
+
+    // Left
+    px = x - 1;
+    py = y;
+    if (px >= 0 && px < gameAreaSize && py >= 0 && py < gameAreaSize)
+    {
+        CheckSlot(index, px, py, wParam);
+    }
+
+    // Up
+    px = x;
+    py = y + 1;
+    if (px >= 0 && px < gameAreaSize && py >= 0 && py < gameAreaSize)
+    {
+        CheckSlot(index, px, py, wParam);
+    }
+
+    // Down
+    px = x;
+    py = y - 1;
+    if (px >= 0 && px < gameAreaSize && py >= 0 && py < gameAreaSize)
+    {
+        CheckSlot(index, px, py, wParam);
+    }
 }
 
 // Forward declarations of functions included in this code module:
@@ -138,8 +222,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     return (int) msg.wParam;
 }
-
-
 
 //
 //  FUNCTION: MyRegisterClass()
@@ -197,6 +279,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
 
+   window = hWnd;
+
    return TRUE;
 }
 
@@ -212,46 +296,33 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    int pressedIndex = -1;
+
     switch (message)
     {
         case WM_CREATE:
         {
-            if (GenerateField())
+            for (int index = 0; index < gameAreaSize * gameAreaSize; index++)
             {
-                for (int x = 0; x < gameAreaSize; x++)
-                {
-                    for (int y = 0; y < gameAreaSize; y++)
-                    {
-                        HWND hwndButton = CreateWindow(
-                            L"BUTTON",  // Predefined class; Unicode assumed 
-                            L"",      // Button text 
-                            WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,  // Styles 
-                            buttonSize * x + gamePadding,         // x position 
-                            buttonSize * y + gamePadding,         // y position 
-                            buttonSize,        // Button width
-                            buttonSize,        // Button height
-                            hWnd,       // Parent window
-                            NULL,       // No menu.
-                            (HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
-                            NULL);
+                // Get x and y coordinates by index
+                float pos = (float)index / (float)gameAreaSize;
+                int x = round((float)(pos - floor(pos)) * (float)gameAreaSize);
+                int y = floor(pos);
 
-                        const TCHAR* fontName = _T("Arial");
-                        const long nFontSize = (int)(buttonSize * 0.7);
+                HWND hwndButton = CreateWindow(
+                    L"BUTTON",  // Predefined class; Unicode assumed 
+                    L"",      // Button text 
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,  // Styles 
+                    buttonSize * x + gamePadding,         // x position 
+                    buttonSize * y + gamePadding,         // y position 
+                    buttonSize,        // Button width
+                    buttonSize,        // Button height
+                    hWnd,       // Parent window
+                    NULL,       // No menu.
+                    (HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
+                    NULL);
 
-                        HDC hdc = GetDC(hwndButton);
-
-                        LOGFONT logFont = { 0 };
-                        logFont.lfHeight = -MulDiv(nFontSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
-                        logFont.lfWeight = FW_BLACK;
-                        _tcscpy_s(logFont.lfFaceName, fontName);
-
-                        HFONT font = CreateFontIndirect(&logFont);
-
-                        SendMessage(hwndButton, WM_SETFONT, (WPARAM)font, (LPARAM)MAKELONG(TRUE, 0));
-                    
-                        buttons[x][y] = hwndButton;
-                    }
-                }
+                buttons[index] = hwndButton;
             }
         }
         case WM_COMMAND:
@@ -272,18 +343,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     return 0;
                     break;
                 case BN_CLICKED:
-                    for (int x = 0; x < gameAreaSize; x++)
+                    for (int index = 0; index < gameAreaSize * gameAreaSize; index++)
                     {
-                        for (int y = 0; y < gameAreaSize; y++)
+                        if ((HWND)lParam == buttons[index])
                         {
-                            if ((HWND)lParam == buttons[x][y])
-                            {
-                                revealed[x][y] = 1;
-                            
-                                RevealPoint(x, y, lParam, wParam);
-                                break;
-                            }
+                            pressedIndex = index;
+                            break;
                         }
+                    }
+
+                    if (pressedIndex >= 0 && pressedIndex < gameAreaSize * gameAreaSize)
+                    {
+                        while (!started)
+                        {
+                            if (GenerateField()) started = gameArea[pressedIndex] == 0;
+                            generatorSeedOffset++;
+                        }
+
+                        revealed[pressedIndex] = 1;
+                        RevealPoint(pressedIndex, lParam, wParam);
                     }
                     break;
                 default:
